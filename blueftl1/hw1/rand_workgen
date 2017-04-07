@@ -1,0 +1,17 @@
+path = 4096
+run pareto
+phase 1: sequential writes
+phase 2: random updates
+phase 3: sleep for 30 seconds
+phase 4: localized updates
+
+bluessd: ==========================Performance summary========================
+bluessd: # of page reads: 19829123
+bluessd: # of page writes: 20303936
+bluessd: # of blk erasures: 316226
+bluessd: ===================Wear-leveling performance summary=================
+bluessd: # of page copies: 0
+bluessd: # of blk erasures: 0
+bluessd: # of erasure count of the oldest blk: 0
+bluessd: =====================================================================
+

@@ -1,0 +1,34 @@
+
+Unit information
+================
+File size = megabytes
+Blk Size  = bytes
+Rate      = megabytes per second
+CPU%      = percentage of CPU used during the test
+Latency   = milliseconds
+Lat%      = percent of requests that took longer than X seconds
+CPU Eff   = Rate divided by CPU% - throughput per cpu load
+
+Sequential Reads
+                              File  Blk   Num                   Avg      Maximum      Lat%     Lat%    CPU
+Identifier                    Size  Size  Thr   Rate  (CPU%)  Latency    Latency      >2s      >10s    Eff
+---------------------------- ------ ----- ---  ------ ------ --------- -----------  -------- -------- -----
+2.6.32-33-generic             100   4096    8  ######     0%     0.004        7.70   0.00000  0.00000     0
+
+Random Reads
+                              File  Blk   Num                   Avg      Maximum      Lat%     Lat%    CPU
+Identifier                    Size  Size  Thr   Rate  (CPU%)  Latency    Latency      >2s      >10s    Eff
+---------------------------- ------ ----- ---  ------ ------ --------- -----------  -------- -------- -----
+2.6.32-33-generic             100   4096    8  ###### 47.68%     0.003        0.10   0.00000  0.00000  9766
+
+Sequential Writes
+                              File  Blk   Num                   Avg      Maximum      Lat%     Lat%    CPU
+Identifier                    Size  Size  Thr   Rate  (CPU%)  Latency    Latency      >2s      >10s    Eff
+---------------------------- ------ ----- ---  ------ ------ --------- -----------  -------- -------- -----
+2.6.32-33-generic             100   4096    8  428.65 318.8%     0.055      288.18   0.00000  0.00000   134
+
+Random Writes
+                              File  Blk   Num                   Avg      Maximum      Lat%     Lat%    CPU
+Identifier                    Size  Size  Thr   Rate  (CPU%)  Latency    Latency      >2s      >10s    Eff
+---------------------------- ------ ----- ---  ------ ------ --------- -----------  -------- -------- -----
+2.6.32-33-generic             100   4096    8   91.61 484.9%     0.006        0.42   0.00000  0.00000    19

@@ -1,0 +1,33 @@
+PostMark v1.51 : 8/14/01
+pm>pm>pm>pm>Current configuration is:
+The base number of files is 14000
+Transactions: 150000
+Files range between 500 bytes and 9.77 kilobytes in size
+Working directory: 
+	/media/blueSSD (weight=1)
+Block sizes are: read=512 bytes, write=512 bytes
+Biases are: read/append=5, create/delete=5
+Using Unix buffered file I/O
+Random number generator seed is 42
+Report format is verbose.
+pm>Creating files...Done
+Performing transactions..........Done
+Deleting files...Done
+Time:
+	5 seconds total
+	5 seconds of transactions (30000 per second)
+
+Files:
+	89120 created (17824 per second)
+		Creation alone: 14000 files (14000 per second)
+		Mixed with transactions: 75120 files (15024 per second)
+	74937 read (14987 per second)
+	74556 appended (14911 per second)
+	89120 deleted (17824 per second)
+		Deletion alone: 14240 files (14240 per second)
+		Mixed with transactions: 74880 files (14976 per second)
+
+Data:
+	472.24 megabytes read (94.45 megabytes per second)
+	566.31 megabytes written (113.26 megabytes per second)
+pm>

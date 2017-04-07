@@ -1,0 +1,9 @@
+bluessd: ==========================Performance summary========================
+bluessd: # of page reads: 52741198
+bluessd: # of page writes: 53678464
+bluessd: # of blk erasures: 837703
+bluessd: ===================Wear-leveling performance summary=================
+bluessd: # of page copies: 0
+bluessd: # of blk erasures: 0
+bluessd: # of erasure count of the oldest blk: 0
+bluessd: =====================================================================
