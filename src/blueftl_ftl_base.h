@@ -72,7 +72,8 @@ struct ftl_base_t {
 		uint32_t merge_bus, 
 		uint32_t merge_chip, 
 		uint32_t merge_block);
-
+	
+	
 	void (*ftl_trigger_wear_leveler) (void);
 };
 

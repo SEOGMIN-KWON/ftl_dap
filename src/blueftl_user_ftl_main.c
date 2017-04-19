@@ -16,7 +16,7 @@
 #include "blueftl_wl_dual_pool.h"
 #include "blueftl_gc_page.h"
 #include "blueftl_read_write_mgr.h"
-
+#include "lzrw3.h"
 struct ftl_base_t _ftl_base;
 struct ftl_context_t* _ptr_ftl_context = NULL;
 
@@ -84,6 +84,12 @@ int32_t blueftl_user_ftl_create (struct ssd_params_t* ptr_ssd_params)
 		return -1;
 	}
 
+	if(blueftl_read_write_mgr_init(_ptr_vdevice->page_main_size) == NULL){
+		printf("blueftl_read_write_mgr_init: the creation of the write page buff failed");
+		return -1;
+	}
+
+
 	printf("blueftl user create end\n");
 	return 0;
 }
@@ -95,7 +101,8 @@ void blueftl_user_ftl_destroy (struct virtual_device_t* _ptr_vdevice)
 
 	/* destroy the user-level FTL */
 	_ftl_base.ftl_destroy_ftl_context (_ptr_ftl_context);
-
+	
+	blueftl_read_write_mgr_close();
 }
 
 

@@ -11,7 +11,6 @@ extern struct ftl_base_t ftl_base_page_mapping;
 
 /* mskim */
 struct chunk_table_t {
-	uint32_t	physical_page_address;
 	uint8_t		valid_count;
 	uint8_t		physical_page_len;
 	bool		is_compressed;
