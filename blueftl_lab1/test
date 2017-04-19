@@ -1,5 +1,0 @@
-./fs
-mount -t ext2 /dev/blueSSD /media/blueSSD/
-dmesg | tail
-benchmark/run_bonnie++.sh
-

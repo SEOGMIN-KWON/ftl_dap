@@ -1,2 +1,0 @@
-mount -t ext2 /dev/blueSSD /media/blueSSD/
-

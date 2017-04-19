@@ -1,1 +1,0 @@
-sudo ./workgen /media/blueSSD
