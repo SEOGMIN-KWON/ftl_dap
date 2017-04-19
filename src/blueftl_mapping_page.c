@@ -33,6 +33,7 @@ struct ftl_base_t ftl_base_page_mapping = {
 	.ftl_destroy_ftl_context = page_mapping_destroy_ftl_context,
 	.ftl_get_mapped_physical_page_address = page_mapping_get_mapped_physical_page_address, 
 	.ftl_get_free_physical_page_address = page_mapping_get_free_physical_page_address,
+	.ftl_get_free_n_physical_page_address = page_mapping_get_free_n_physical_page_address,
 	.ftl_map_logical_to_physical = page_mapping_map_logical_to_physical,
 #if GC_ON
 	.ftl_trigger_gc = gc_page_trigger_gc,
@@ -45,7 +46,7 @@ struct ftl_base_t ftl_base_page_mapping = {
 
 
 /* create the page mapping table */
-struct ftl_context_t* page_mapping_create_ftl_context ( struct virtual_device_t* ptr_vdevice)
+struct ftl_context_t* page_mapping_create_ftl_context(struct virtual_device_t* ptr_vdevice)
 {
 	uint32_t init_pg_loop = 0;
 
@@ -213,23 +214,29 @@ int32_t page_mapping_get_mapped_physical_page_address (
 struct flash_block_t *_current_block = (struct flash_block_t *)-1;
 uint32_t _page_offset;
 
-int32_t find_page_in_block(struct flash_ssd_t* ptr_ssd, uint32_t *pbus, uint32_t *pchip, uint32_t *pblock){
-	// printf("[%d, ",*pblock);
+int32_t find_page_in_block(struct flash_ssd_t* ptr_ssd, uint32_t nr_pages, uint32_t *pbus, uint32_t *pchip, uint32_t *pblock){
+	
+	uint32_t i;
 	// 현재 블록의 빈 페이지를 찾음
 	if(_current_block->is_reserved_block == 0){
 		for(_page_offset=0; _page_offset < ptr_ssd->nr_pages_per_block; _page_offset++){
-			// printf("(%d, %d)",_page_offset,_current_block->list_pages[_page_offset].page_status);
 			
-			// if(_current_block->list_pages[_page_offset].page_status==3) continue;
-			// printf("%d", _current_block->list_pages[_page_offset].page_status);
+			// FREE PAGE를 찾음 
 			if(_current_block->list_pages[_page_offset].page_status==PAGE_STATUS_FREE){
-				// printf("* ");
+				
+				// FREE PAGE를 시작으로 nr_pages 길이만큼 free page가 존재하면 return 0
+				// nr_page 길이만큼 free page를 찾다가 free page가 아닌 페이지가 나오면 retrun -1
+				for(i=1; i<nr_pages; i++){
+					if(_current_block->list_pages[_page_offset+i].page_status!=PAGE_STATUS_FREE){
+						continue;
+					}
+				}
 				return 0;
 			}
-			// printf(" ");
 		}
 	}
-	// printf("]");
+
+
 	(*pblock)++;
 	if((*pblock) >= ptr_ssd->nr_blocks_per_chip){
 		(*pchip)++;
@@ -244,13 +251,14 @@ int32_t find_page_in_block(struct flash_ssd_t* ptr_ssd, uint32_t *pbus, uint32_t
 	return -1;
 }
 
-int32_t find_page(struct flash_ssd_t* ptr_ssd){
+int32_t find_page(struct flash_ssd_t* ptr_ssd, uint32_t nr_pages){
 	if(_current_block == (struct flash_block_t *)-1){
 		_current_block = ssdmgmt_get_free_block(ptr_ssd, 0, 0);
 		_page_offset=0;
 		return 0;
 	}
 	
+	uint32_t i;
 	uint32_t org_bus = _current_block->no_bus;
 	uint32_t org_chip = _current_block->no_chip;
 	uint32_t org_block = _current_block->no_block;
@@ -259,9 +267,9 @@ int32_t find_page(struct flash_ssd_t* ptr_ssd){
 	uint32_t block = org_block;
 
 
-	if(find_page_in_block(ptr_ssd, &bus, &chip, &block)==0) return 0;
+	// if(find_page_in_block(ptr_ssd, nr_pages, &bus, &chip, &block)==0) return 0;
 	do{
-		if(find_page_in_block(ptr_ssd, &bus, &chip, &block)==0) return 0;
+		if(find_page_in_block(ptr_ssd, nr_pages, &bus, &chip, &block)==0) return 0;
 	}while(!(org_bus==bus && org_chip==chip && org_block==block));
 	// printf("*\n");
 	return -1;
@@ -270,7 +278,7 @@ int32_t find_page(struct flash_ssd_t* ptr_ssd){
 /* get a free physical page address */
 int32_t page_mapping_get_free_physical_page_address (
 	struct ftl_context_t* ptr_ftl_context, 
-	uint32_t logical_page_address,
+	uint32_t nr_pages,
 	uint32_t *ptr_bus,
 	uint32_t *ptr_chip,
 	uint32_t *ptr_block,
@@ -279,11 +287,8 @@ int32_t page_mapping_get_free_physical_page_address (
 	//printf("-S----%s \n", __func__);
 
 	struct flash_ssd_t* ptr_ssd = ptr_ftl_context->ptr_ssd;
-	// struct ftl_page_mapping_context_t* ptr_pg_mapping = (struct ftl_page_mapping_context_t*)ptr_ftl_context->ptr_mapping;
-	
 
-
-	if(find_page(ptr_ssd)==-1) { goto need_gc; }
+	if(find_page(ptr_ssd, nr_pages)==-1) { goto need_gc; }
 	*ptr_bus = _current_block->no_bus;
 	*ptr_chip = _current_block->no_chip;
 	*ptr_block = _current_block->no_block;
@@ -299,6 +304,8 @@ need_gc:
 	return -1;
 }
 
+
+
 /* map a logical page address to a physical page address */
 int32_t page_mapping_map_logical_to_physical (
 	struct ftl_context_t* ptr_ftl_context, 
@@ -306,7 +313,8 @@ int32_t page_mapping_map_logical_to_physical (
 	uint32_t bus,
 	uint32_t chip,
 	uint32_t block,
-	uint32_t page)
+	uint32_t page,
+	uint32_t nr_pages)
 {
 	struct flash_block_t *new_block, *old_block;
 	struct flash_ssd_t* ptr_ssd = ptr_ftl_context->ptr_ssd;
@@ -316,13 +324,18 @@ int32_t page_mapping_map_logical_to_physical (
 	int32_t ret = -1;
 	uint32_t rbus, rchip, rblock, rpage;
 
-	/* get the physical page address using the page mapping table */
+	/* old_ppa:: 매핑테이블에 등록된 ppa */
 	old_ppa = ptr_pg_mapping->ptr_pg_table[logical_page_address];
-	// printf("oldppa %d\n",old_ppa);
+
 	new_block = &(ptr_ssd->list_buses[bus].list_chips[chip].list_blocks[block]);
+
+	/* new_ppa:: parameter로 들어온 ppa */
 	new_ppa = ftl_convert_to_physical_page_address (bus, chip, block, page);
+	
+	/* 해당 lpa가 update인지 확인*/
 	if ((old_ppa!=-1) &&(new_ppa != old_ppa)) {
-		// remove old
+		/* update이면 invalidation 함*/
+
 		ftl_convert_to_ssd_layout(old_ppa, &rbus, &rchip, &rblock, &rpage);
 		old_block = &(ptr_ssd->list_buses[rbus].list_chips[rchip].list_blocks[rblock]);
 		if(old_block->list_pages[rpage].page_status == PAGE_STATUS_VALID){
@@ -333,6 +346,7 @@ int32_t page_mapping_map_logical_to_physical (
 		}
 	}
 	
+	/* new_ppa에 해당하는 정보 등록. */
 	uint32_t ovalid=new_block->nr_valid_pages;
 	uint32_t oinvalid=new_block->nr_invalid_pages;
 	ptr_pg_mapping->ptr_pg_table[logical_page_address] = new_ppa;

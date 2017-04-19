@@ -46,7 +46,7 @@ struct ftl_base_t {
 
 	int32_t (*ftl_get_free_physical_page_address) (
 		struct ftl_context_t* ptr_ftl_context, 
-		uint32_t logical_page_address, 
+		uint32_t nr_pages, 
 		uint32_t* ptr_bus, 
 		uint32_t* ptr_chip, 
 		uint32_t* ptr_block, 
@@ -58,7 +58,8 @@ struct ftl_base_t {
 		uint32_t bus, 
 		uint32_t chip, 
 		uint32_t block, 
-		uint32_t page);
+		uint32_t page,
+		uint32_t nr_pages);
 
 	int32_t (*ftl_trigger_gc) (
 		struct ftl_context_t* ptr_ftl_context, 

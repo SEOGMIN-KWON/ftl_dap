@@ -56,7 +56,7 @@ void blueftl_page_read(
 
 	if (ftl_base.ftl_get_mapped_physical_page_address(ptr_ftl_context, lpa_curr, &bus, &chip, &block, &page) == 0)
 	{
-		
+
 		blueftl_user_vdevice_page_read (_ptr_vdevice, bus, chip, block, page, _ptr_vdevice->page_main_size, (char*)ptr_lba_buff);
 
 	} else {
@@ -72,7 +72,6 @@ uint32_t blueftl_page_write(
     uint8_t *ptr_lba_buff
 ){
     uint32_t bus, chip, block, page;
-    uint8_t is_merge_needed = 0;
     uint32_t *ptr_write_buff_data;
     uint32_t *ptr_write_buff_lpa;
     /*
@@ -94,7 +93,7 @@ uint32_t blueftl_page_write(
             압축이 필요한가 - 압축이 필요할 때
                 1. 압축
                 2. 압축된 페이지 사이즈에 맞게 ftl 페이지 요청
-                3. phsical write
+                3. physical write
                 4. ftl 등록
             압축이 필요한가 - 압축이 필요하지 않을 때
                 각 4개의 페이지에 대해
@@ -107,18 +106,54 @@ uint32_t blueftl_page_write(
             Write를 했다 -> buffer에 들어가 있음
             buffer에서 꺼내 압축 하여 physical write를 하기 전에 read요청이 들어오면 어떻게 할것인가.
             =>  buffer에 있는 데이터를 그냥 꺼내라
+
+            문제점
+                현재 block 내에서 연속된 페이지를 찾는데 fragmentation이 생김. 그런 빈 자리를 압축하지 않는 페이지가 들어가도록 유도해야 할듯.
         */
         
-        /* 압축 */
+        /* 1. 압축압축 */
         UWORD compressed_size = compress(_write_page_buff, _write_page_buff_size, _compressed_buff);
         // 압축된 페이지 계산
         uint32_t nr_compress_pages = compressed_size/page_size + compressed_size%page_size?1:0;
+        uint32_t bus, chip, block, page;
+        // 2. 압축된 페이지 사이즈에 맞게 ftl 페이지 요청
+        if(page_mapping_get_free_physical_page_address(ptr_ftl_context, nr_compress_pages, &bus, &chip, &block, &page)==-1){
+            /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
+            /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
+            /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
+            /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
+            /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
+            /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
+        }
+        
+        /* 3. physical write */
+        uint32_t *ptr_compress_page;
+        for(i=0; i<nr_compress_pages; i++){
+            ptr_compress_page = _compressed_buff + i*_page_size;
+            blueftl_user_vdevice_page_write(
+                _ptr_vdevice,
+                bus, chip, block, page+i,
+                _page_size,
+                (char *)ptr_compress_page
+            );
+        }
+
+        /* 4. ftl 등록 */
+        if(ftl_base.ftl_map_logical_to_physical(
+            ptr_ftl_context, lpa_curr, bus, chip, block, page, nr_compress_pages) == -1)
+        {
+            printf ("bluessd: map_logical_to_physical failed\n");
+            return -1;
+        }
         
     }
+    return 0;
+#if 0
     
     /* get the new physical page address from the FTL */
     if (ftl_base.ftl_get_free_physical_page_address (
-            ptr_ftl_context, lpa_curr, &bus, &chip, &block, &page) == -1) {
+            ptr_ftl_context, 1, &bus, &chip, &block, &page) == -1)
+    {
         /* there are no free pages; do garbage collection */
         if (ftl_base.ftl_trigger_gc != NULL) {
 
@@ -130,7 +165,7 @@ uint32_t blueftl_page_write(
 
             /* garbage collection has been finished; chooses the new free page */
             if (ftl_base.ftl_get_free_physical_page_address (
-                    ptr_ftl_context, lpa_curr, &bus, &chip, &block, &page) == -1) {
+                    ptr_ftl_context, 1, &bus, &chip, &block, &page) == -1) {
                 printf ("bluessd: there is not sufficient space in flash memory.\n");
                 return -1;
             }
@@ -171,4 +206,5 @@ uint32_t blueftl_page_write(
     }
 
     return 0;
+#endif
 }
