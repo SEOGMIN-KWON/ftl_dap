@@ -107,7 +107,7 @@ uint32_t blueftl_page_write(
             buffer에서 꺼내 압축 하여 physical write를 하기 전에 read요청이 들어오면 어떻게 할것인가.
             =>  buffer에 있는 데이터를 그냥 꺼내라
 
-            문제점
+            문제점 page_mapping_get_free_physical_page_address
                 현재 block 내에서 연속된 페이지를 찾는데 fragmentation이 생김. 그런 빈 자리를 압축하지 않는 페이지가 들어가도록 유도해야 할듯.
         */
         

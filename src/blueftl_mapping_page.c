@@ -324,6 +324,16 @@ int32_t page_mapping_map_logical_to_physical (
 	int32_t ret = -1;
 	uint32_t rbus, rchip, rblock, rpage;
 
+	/**
+		매핑에서 고려해야 할 것
+		0. invalidation 필요 여부
+		1. 페이지: status, lpa
+		2. 블록: free / valid / invalid 페이지 카운트
+		3. 칩: free / dirty 블록 카운트 
+		4. 매핑테이블: ppa
+		5. 청크테이블: 압축여부, 페이지len, valid 카운트
+	**/
+
 	/* old_ppa:: 매핑테이블에 등록된 ppa */
 	old_ppa = ptr_pg_mapping->ptr_pg_table[logical_page_address];
 
