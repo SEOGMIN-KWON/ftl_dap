@@ -319,15 +319,16 @@ int32_t page_mapping_map_logical_to_physical (
 	struct flash_block_t *new_block, *old_block;
 	struct flash_ssd_t* ptr_ssd = ptr_ftl_context->ptr_ssd;
 	struct ftl_page_mapping_context_t* ptr_pg_mapping = (struct ftl_page_mapping_context_t*)ptr_ftl_context->ptr_mapping;
-
+	struct chunk_table_t *ptr_chunk_table = (struct ftl_page_mapping_context_t*)ptr_ftl_context->ptr_chunk_table;
 	uint32_t new_ppa, old_ppa;
 	int32_t ret = -1;
 	uint32_t rbus, rchip, rblock, rpage;
+	uint32_t i;
 
 	/**
 		매핑에서 고려해야 할 것
 		0. invalidation 필요 여부
-		1. 페이지: status, lpa
+		1. 페이지: status, lpa --> 의미없어짐..
 		2. 블록: free / valid / invalid 페이지 카운트
 		3. 칩: free / dirty 블록 카운트 
 		4. 매핑테이블: ppa
@@ -342,10 +343,40 @@ int32_t page_mapping_map_logical_to_physical (
 	/* new_ppa:: parameter로 들어온 ppa */
 	new_ppa = ftl_convert_to_physical_page_address (bus, chip, block, page);
 	
-	/* 해당 lpa가 update인지 확인*/
+	/* 해당 lpa가 update인지 확인, invalidation이 필요한지 확인 */
 	if ((old_ppa!=-1) &&(new_ppa != old_ppa)) {
-		/* update이면 invalidation 함*/
-
+		/* update이면 invalidation 함
+			압축여부 확인
+				압축이면
+				1. 청크 테이블에 valid 카운트 감소
+				2. valid가 0이 되면
+					1. 압축된 모든 페이지 invalidation, lpa 클리어
+					2. 블록에 invalid 페이지 증가, valid page 감소
+				압축아니면
+				1. 청크 테이블에 valid 카운트 감소
+				3. 페이지에 invalidation, lpa 클리어
+				2. 블록에 invalid 페이지 증가, valid page 감소
+		*/
+		
+		// 압축이면 
+		if(ptr_chunk_table[old_ppa].is_compressed){
+			ptr_chunk_table[old_ppa].valid_count--;
+			
+			//valid한 page가 없을 때, 압축된 모든 페이지를 invalidation
+			if(ptr_chunk_table[old_ppa].valid_count==0){
+				ftl_convert_to_ssd_layout(old_ppa, &rbus, &rchip, &rblock, &rpage);
+				for(i=0; i<ptr_chunk_table[old_ppa].physical_page_len; i++){
+					old_block->list_pages[rpage+i].page_status = PAGE_STATUS_INVALID;
+					old_block->list_pages[rpage+i].no_logical_page_addr = -1;
+					old_block->nr_valid_pages--;
+					old_block->nr_invalid_pages--;
+				}
+			}
+		}
+		else{ // 압축이 아니면
+			ptr_chunk_table
+		}
+		/* // 의미 없음.
 		ftl_convert_to_ssd_layout(old_ppa, &rbus, &rchip, &rblock, &rpage);
 		old_block = &(ptr_ssd->list_buses[rbus].list_chips[rchip].list_blocks[rblock]);
 		if(old_block->list_pages[rpage].page_status == PAGE_STATUS_VALID){
@@ -354,6 +385,7 @@ int32_t page_mapping_map_logical_to_physical (
 			old_block->nr_valid_pages--;
 			old_block->nr_invalid_pages++;
 		}
+		*/
 	}
 	
 	/* new_ppa에 해당하는 정보 등록. */
