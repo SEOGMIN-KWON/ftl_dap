@@ -1,3 +1,6 @@
+#ifndef _BLUESSD_LZRW
+#define _BLUESSD_LZRW
+
 #define UBYTE unsigned char
 #define UWORD unsigned int
 
@@ -24,3 +27,5 @@
 UWORD decompress(UBYTE*, UWORD, UBYTE*);
 UWORD compress(UBYTE*, UWORD, UBYTE*);
 void init_hashTable(UBYTE**);
+
+#endif

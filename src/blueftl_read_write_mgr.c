@@ -20,39 +20,38 @@
 
 struct wr_buff_t {
     uint32_t arr_lpa[WRITE_BUFFER_LEN];
-    uint8_t buff[FLASH_PAGE_SIZE*WRITE_BUFFER_LEN];
+    uint8_t buff[FLASH_PAGE_SIZE * WRITE_BUFFER_LEN];
 };
 
 struct wr_buff_t _struct_write_buff; 
-
-uint32_t _page_size;
 
 uint8_t *_write_buff;
 uint8_t *_compressed_buff;
 uint32_t _nr_buff_pages;
 
 
-uint32_t _write_page_buff_size;
-
 void serialize();
 void deserialize();
 
 void clean_buff(){
-    _arr_lpa[0] = _arr_lpa[1] = _arr_lpa[2] = _arr_lpa[3] = -1;
+    _struct_write_buff.arr_lpa[0] = -1;
+    _struct_write_buff.arr_lpa[1] = -1;
+    _struct_write_buff.arr_lpa[2] = -1;
+    _struct_write_buff.arr_lpa[3] = -1;
     _nr_buff_pages = 0;
 }
 
-uint32_t blueftl_read_write_mgr_init(uint32_t page_size){   
-    _page_size = page_size;
+uint32_t blueftl_read_write_mgr_init(){   
     clean_buff();
     
-    _write_buff = (uint8_t *)malloc(sizeof(wr_buff_t));
-    _compressed_buff = (uint8_t *)malloc(8*page_size*sizoef(uint8_t));
-    return _write_page_buff | _compressed_buff; 
+    _write_buff = (uint8_t *)malloc(sizeof(struct wr_buff_t));
+    _compressed_buff = (uint8_t *)malloc(8*FLASH_PAGE_SIZE*sizeof(uint8_t));
+    return _write_buff || _compressed_buff; 
 }
 
 void blueftl_read_write_mgr_close(){
-    free(write_page_buff);
+    free(_write_buff);
+    free(_compressed_buff);
 }
 
 void blueftl_page_read(
@@ -80,21 +79,16 @@ uint32_t blueftl_page_write(
     uint32_t lpa_curr, 
     uint8_t *ptr_lba_buff
 ){
-    uint32_t bus, chip, block, page;
-    uint32_t *ptr_write_buff_data;
-    uint32_t *ptr_write_buff_lpa;
+    uint32_t i;
+
     /*
         (1) write buff count 증가
-        (2) 버퍼 lpa position 설정
-        (3) lpa 저장
-        (3) 버퍼 dest position 설정
-        (4) write 대상 데이터를 버퍼에 복사
+        (2) lpa 저장
+        (3) write 대상 데이터를 버퍼에 복사
     */
     _nr_buff_pages++; // (1)
-    ptr_write_buff_lpa = _write_page_buff + (_nr_buff_pages - 1)*sizeof(uint32_t); // (2)
-    *ptr_write_buff_lpa = lpa_curr; // (3)
-    ptr_write_buff = _write_page_buff + WRITE_BUFFER_LEN*sizeof(uint32_t) + ((_nr_buff_pages-1)*_page_size)); //(4)
-    memcpy(ptr_write, ptr_lba_buff, _page_size); // (5)
+    _struct_write_buff.arr_lpa[_nr_buff_pages-1] = lpa_curr; // (3)
+    memcpy(&_struct_write_buff.buff[_nr_buff_pages-1], ptr_lba_buff, FLASH_PAGE_SIZE); // (5)
 
     /* buff가 꽉찼으므로 compression 후 write */
     if(_nr_buff_pages == WRITE_BUFFER_LEN){
@@ -120,102 +114,57 @@ uint32_t blueftl_page_write(
                 현재 block 내에서 연속된 페이지를 찾는데 fragmentation이 생김. 그런 빈 자리를 압축하지 않는 페이지가 들어가도록 유도해야 할듯.
         */
         
-        /* 1. 압축압축 */
-        UWORD compressed_size = compress(_write_page_buff, _write_page_buff_size, _compressed_buff);
-        // 압축된 페이지 계산
-        uint32_t nr_compress_pages = compressed_size/page_size + compressed_size%page_size?1:0;
-        uint32_t bus, chip, block, page;
-        // 2. 압축된 페이지 사이즈에 맞게 ftl 페이지 요청
-        if(page_mapping_get_free_physical_page_address(ptr_ftl_context, nr_compress_pages, &bus, &chip, &block, &page)==-1){
-            /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
-            /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
-            /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
-            /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
-            /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
-            /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
+        /* 1. serialize 후 압축 */
+        serialize();
+        UWORD compressed_size = compress(_write_buff, sizeof(struct wr_buff_t), _compressed_buff);
+        
+        if( compressed_size >= FLASH_PAGE_SIZE * WRITE_BUFFER_LEN // 압축했는데 4페이지보다 크거나
+            || compressed_size == -1 // 압축의 리턴값이 -1(실패)일 때 압축하지 않고 physical write
+        ){  
+            // 압축 하지 않고 write
+            for(i=0; i<WRITE_BUFFER_LEN; i++){
+                
+            }
+        } else { // 압축된 것을 write
+            // 압축된 페이지 계산
+            uint32_t nr_compress_pages = compressed_size/FLASH_PAGE_SIZE + compressed_size%FLASH_PAGE_SIZE?1:0;
+            uint32_t bus, chip, block, page;
+            // 2. 압축된 페이지 사이즈에 맞게 ftl 페이지 요청
+            if(page_mapping_get_free_physical_page_address(ptr_ftl_context, nr_compress_pages, &bus, &chip, &block, &page)==-1){
+                /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
+                /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
+                /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
+                /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
+                /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
+                /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
+            }
+            
+            /* 3. physical write */
+            uint32_t *ptr_compress_page;
+            for(i=0; i<nr_compress_pages; i++){
+                ptr_compress_page = _compressed_buff + i*FLASH_PAGE_SIZE;
+                blueftl_user_vdevice_page_write(
+                    _ptr_vdevice,
+                    bus, chip, block, page+i,
+                    FLASH_PAGE_SIZE,
+                    (char *)ptr_compress_page
+                );
+            }
+
+            /* 4. ftl 등록 */
+            if(ftl_base.ftl_map_logical_to_physical(
+                ptr_ftl_context, _struct_write_buff.arr_lpa, bus, chip, block, page, nr_compress_pages, 1) == -1)
+            {
+                printf ("bluessd: map_logical_to_physical failed\n");
+                return -1;
+            }
         }
         
-        /* 3. physical write */
-        uint32_t *ptr_compress_page;
-        for(i=0; i<nr_compress_pages; i++){
-            ptr_compress_page = _compressed_buff + i*_page_size;
-            blueftl_user_vdevice_page_write(
-                _ptr_vdevice,
-                bus, chip, block, page+i,
-                _page_size,
-                (char *)ptr_compress_page
-            );
-        }
 
-        /* 4. ftl 등록 */
-        if(ftl_base.ftl_map_logical_to_physical(
-            ptr_ftl_context, lpa_curr, bus, chip, block, page, nr_compress_pages) == -1)
-        {
-            printf ("bluessd: map_logical_to_physical failed\n");
-            return -1;
-        }
+        clean_buff();
         
     }
     return 0;
-#if 0
-    
-    /* get the new physical page address from the FTL */
-    if (ftl_base.ftl_get_free_physical_page_address (
-            ptr_ftl_context, 1, &bus, &chip, &block, &page) == -1)
-    {
-        /* there are no free pages; do garbage collection */
-        if (ftl_base.ftl_trigger_gc != NULL) {
-
-            /* trigger gc */
-            if (ftl_base.ftl_trigger_gc (ptr_ftl_context, bus, chip) == -1) {
-                printf ("bluessd: oops! garbage collection failed.\n");
-                return -1;
-            }
-
-            /* garbage collection has been finished; chooses the new free page */
-            if (ftl_base.ftl_get_free_physical_page_address (
-                    ptr_ftl_context, 1, &bus, &chip, &block, &page) == -1) {
-                printf ("bluessd: there is not sufficient space in flash memory.\n");
-                return -1;
-            }
-
-            /* ok. we obtain new free space */
-        } else if (ftl_base.ftl_trigger_merge != NULL) {
-            /* the FTL does not support gc,
-                so it is necessary to merge the new data with the existing data */
-            is_merge_needed = 1;
-        } else {
-            printf ("bluessd: garbage collection is not registered\n");
-            return -1;
-        }
-    }
-
-    if (is_merge_needed == 0) {
-
-        /* perform a page write */
-        blueftl_user_vdevice_page_write (
-            _ptr_vdevice, 
-            bus, chip, block, page, 
-            _ptr_vdevice->page_main_size, 
-            (char*)ptr_lba_buff);
-
-        /* map the logical address to the new physical address */
-        if (ftl_base.ftl_map_logical_to_physical (
-                ptr_ftl_context, lpa_curr, bus, chip, block, page) == -1) {
-            printf ("bluessd: map_logical_to_physical failed\n");
-            return -1;
-        }
-    } else {
-        /* trigger merge with new data */
-        if (ftl_base.ftl_trigger_merge (
-                ptr_ftl_context, lpa_curr, ptr_lba_buff, bus, chip, block) == -1) {
-            printf ("bluessd: block merge failed\n");
-            return -1;
-        }
-    }
-
-    return 0;
-#endif
 }
 
 
@@ -223,22 +172,22 @@ uint32_t blueftl_page_write(
 void serialize(){
     uint8_t *ptr_buf_pos = _write_buff;
     
-    memcpy(ptr_buf_pos, _struct_write_buff.arr_lpa[0], sizeof(uint32_t));
+    memcpy(ptr_buf_pos, &_struct_write_buff.arr_lpa[0], sizeof(uint32_t));
     ptr_buf_pos += sizeof(uint32_t);
-    memcpy(ptr_buf_pos, _struct_write_buff.arr_lpa[1], sizeof(uint32_t));
+    memcpy(ptr_buf_pos, &_struct_write_buff.arr_lpa[1], sizeof(uint32_t));
     ptr_buf_pos += sizeof(uint32_t);
-    memcpy(ptr_buf_pos, _struct_write_buff.arr_lpa[2], sizeof(uint32_t));
+    memcpy(ptr_buf_pos, &_struct_write_buff.arr_lpa[2], sizeof(uint32_t));
     ptr_buf_pos += sizeof(uint32_t);
-    memcpy(ptr_buf_pos, _struct_write_buff.arr_lpa[3], sizeof(uint32_t));
+    memcpy(ptr_buf_pos, &_struct_write_buff.arr_lpa[3], sizeof(uint32_t));
     ptr_buf_pos += sizeof(uint32_t);
 
-    memcpy(ptr_buf_pos, _struct_write_buff.buff[0], FLASH_PAGE_SIZE);
-    ptr_buf_pos += FLASH_PAGE_SIZE);
-    memcpy(ptr_buf_pos, _struct_write_buff.buff[1], FLASH_PAGE_SIZE);
-    ptr_buf_pos += FLASH_PAGE_SIZE);
-    memcpy(ptr_buf_pos, _struct_write_buff.buff[2], FLASH_PAGE_SIZE);
-    ptr_buf_pos += FLASH_PAGE_SIZE);
-    memcpy(ptr_buf_pos, _struct_write_buff.buff[3], FLASH_PAGE_SIZE);
+    memcpy(ptr_buf_pos, &_struct_write_buff.buff[FLASH_PAGE_SIZE*0], FLASH_PAGE_SIZE);
+    ptr_buf_pos += FLASH_PAGE_SIZE;
+    memcpy(ptr_buf_pos, &_struct_write_buff.buff[FLASH_PAGE_SIZE*1], FLASH_PAGE_SIZE);
+    ptr_buf_pos += FLASH_PAGE_SIZE;
+    memcpy(ptr_buf_pos, &_struct_write_buff.buff[FLASH_PAGE_SIZE*2], FLASH_PAGE_SIZE);
+    ptr_buf_pos += FLASH_PAGE_SIZE;
+    memcpy(ptr_buf_pos, &_struct_write_buff.buff[FLASH_PAGE_SIZE*3], FLASH_PAGE_SIZE);
 
 }
 
@@ -254,12 +203,12 @@ void deserialize(){
     memcpy(&_struct_write_buff.arr_lpa[3], ptr_buf_pos, sizeof(uint32_t));
     ptr_buf_pos += sizeof(uint32_t);
 
-    memcpy(&_struct_write_buff.buff[0], ptr_buf_pos, FLASH_PAGE_SIZE);
-    ptr_buf_pos += FLASH_PAGE_SIZE);
-    memcpy(&_struct_write_buff.buff[1], ptr_buf_pos, FLASH_PAGE_SIZE);
-    ptr_buf_pos += FLASH_PAGE_SIZE);
-    memcpy(&_struct_write_buff.buff[2], ptr_buf_pos, FLASH_PAGE_SIZE);
-    ptr_buf_pos += FLASH_PAGE_SIZE);
-    memcpy(&_struct_write_buff.buff[3], ptr_buf_pos, FLASH_PAGE_SIZE);
+    memcpy(&_struct_write_buff.buff[FLASH_PAGE_SIZE*0], ptr_buf_pos, FLASH_PAGE_SIZE);
+    ptr_buf_pos += FLASH_PAGE_SIZE;
+    memcpy(&_struct_write_buff.buff[FLASH_PAGE_SIZE*1], ptr_buf_pos, FLASH_PAGE_SIZE);
+    ptr_buf_pos += FLASH_PAGE_SIZE;
+    memcpy(&_struct_write_buff.buff[FLASH_PAGE_SIZE*2], ptr_buf_pos, FLASH_PAGE_SIZE);
+    ptr_buf_pos += FLASH_PAGE_SIZE;
+    memcpy(&_struct_write_buff.buff[FLASH_PAGE_SIZE*3], ptr_buf_pos, FLASH_PAGE_SIZE);
 
 }

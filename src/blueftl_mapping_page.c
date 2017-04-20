@@ -18,6 +18,7 @@
 #include "blueftl_gc_page.h"
 #include "blueftl_mapping_page.h"
 #include "blueftl_util.h"
+#include "blueftl_read_write_mgr.h"
 
 /**
 	page_mapping_get_mapped_physical_page_address:
@@ -33,7 +34,6 @@ struct ftl_base_t ftl_base_page_mapping = {
 	.ftl_destroy_ftl_context = page_mapping_destroy_ftl_context,
 	.ftl_get_mapped_physical_page_address = page_mapping_get_mapped_physical_page_address, 
 	.ftl_get_free_physical_page_address = page_mapping_get_free_physical_page_address,
-	.ftl_get_free_n_physical_page_address = page_mapping_get_free_n_physical_page_address,
 	.ftl_map_logical_to_physical = page_mapping_map_logical_to_physical,
 #if GC_ON
 	.ftl_trigger_gc = gc_page_trigger_gc,
@@ -257,8 +257,6 @@ int32_t find_page(struct flash_ssd_t* ptr_ssd, uint32_t nr_pages){
 		_page_offset=0;
 		return 0;
 	}
-	
-	uint32_t i;
 	uint32_t org_bus = _current_block->no_bus;
 	uint32_t org_chip = _current_block->no_chip;
 	uint32_t org_block = _current_block->no_block;
@@ -304,7 +302,90 @@ need_gc:
 	return -1;
 }
 
-void clear_prev_ppa()
+void clear_prev_ppa(
+	struct ftl_context_t *ptr_ftl_context, 
+	uint32_t logical_page_address,
+	uint32_t bus,
+	uint32_t chip,
+	uint32_t block,
+	uint32_t page
+	)
+{
+	struct flash_ssd_t* ptr_ssd = ptr_ftl_context->ptr_ssd;
+	struct ftl_page_mapping_context_t* ptr_pg_mapping = (struct ftl_page_mapping_context_t*)ptr_ftl_context->ptr_mapping;
+	struct chunk_table_t *ptr_chunk_table = ((struct ftl_page_mapping_context_t*)ptr_ftl_context)->ptr_chunk_table;
+	struct flash_block_t *old_block;
+	uint32_t rbus, rchip, rblock, rpage;
+	uint32_t new_ppa, old_ppa, i;
+
+	old_ppa = ptr_pg_mapping->ptr_pg_table[logical_page_address];
+	new_ppa = ftl_convert_to_physical_page_address (bus, chip, block, page);
+	
+	/* 해당 lpa가 update인지 확인, invalidation이 필요한지 확인 */
+	if ((old_ppa!=-1) &&(new_ppa != old_ppa)) {
+		/* update이면 invalidation 함
+			1. 청크 테이블에 valid 카운트 감소
+			2. valid가 0이 되면, 압축여부에 관계없이 동작함 .
+				1. 압축된 모든 페이지 invalidation, lpa 클리어
+				2. 블록에 invalid 페이지 증가, valid page 감소
+		*/
+		ptr_chunk_table[old_ppa].valid_count--;
+		
+		//valid한 page가 없을 때, 압축된 모든 페이지를 invalidation
+		if(ptr_chunk_table[old_ppa].valid_count==0){
+			ftl_convert_to_ssd_layout(old_ppa, &rbus, &rchip, &rblock, &rpage);
+			old_block = &(ptr_ssd->list_buses[rbus].list_chips[rchip].list_blocks[rblock]);
+			for(i=0; i<ptr_chunk_table[old_ppa].physical_page_len; i++){
+				old_block->list_pages[rpage+i].page_status = PAGE_STATUS_INVALID;
+				old_block->list_pages[rpage+i].no_logical_page_addr = -1;
+				old_block->nr_valid_pages--;
+				old_block->nr_invalid_pages++;
+			}
+			old_block->last_modified_time = timer_get_timestamp_in_us();
+		}
+	}
+}
+
+int32_t mapping_logical_to_physical(
+	struct ftl_context_t* ptr_ftl_context, 
+	uint32_t logical_page_address,
+	uint32_t bus,
+	uint32_t chip,
+	uint32_t block,
+	uint32_t page
+	)
+{
+	struct flash_block_t *new_block;
+	struct flash_ssd_t* ptr_ssd = ptr_ftl_context->ptr_ssd;
+	struct ftl_page_mapping_context_t* ptr_pg_mapping = (struct ftl_page_mapping_context_t*)ptr_ftl_context->ptr_mapping;
+
+	uint32_t ppa = ftl_convert_to_physical_page_address(bus, chip, block, page);
+	/* ppa에 해당하는 정보 등록. */
+	new_block = &(ptr_ssd->list_buses[bus].list_chips[chip].list_blocks[block]);
+	
+	uint32_t prev_valid=new_block->nr_valid_pages;
+	uint32_t prev_invalid=new_block->nr_invalid_pages;
+
+	if(new_block->list_pages[page].page_status == PAGE_STATUS_FREE){
+		new_block->list_pages[page].page_status = PAGE_STATUS_VALID;
+		new_block->list_pages[page].no_logical_page_addr = logical_page_address;
+		new_block->nr_valid_pages++;
+		new_block->nr_free_pages--;
+
+		// 매핑 테이블 등록
+		ptr_pg_mapping->ptr_pg_table[logical_page_address] = ppa;
+	} else {
+		return -1;
+	}
+
+	new_block->last_modified_time = timer_get_timestamp_in_us();
+	if(prev_valid==0 && prev_invalid==0){
+		ptr_ssd->list_buses[new_block->no_bus].list_chips[new_block->no_chip].nr_free_blocks--;
+		ptr_ssd->list_buses[new_block->no_bus].list_chips[new_block->no_chip].nr_dirty_blocks++;
+	}
+
+	return 0;
+}
 
 /* map a logical page address to a physical page address */
 int32_t page_mapping_map_logical_to_physical (
@@ -317,13 +398,8 @@ int32_t page_mapping_map_logical_to_physical (
 	uint32_t nr_pages,
 	bool is_compressed)
 {
-	struct flash_block_t *new_block, *old_block;
-	struct flash_ssd_t* ptr_ssd = ptr_ftl_context->ptr_ssd;
-	struct ftl_page_mapping_context_t* ptr_pg_mapping = (struct ftl_page_mapping_context_t*)ptr_ftl_context->ptr_mapping;
-	struct chunk_table_t *ptr_chunk_table = (struct ftl_page_mapping_context_t*)ptr_ftl_context->ptr_chunk_table;
-	uint32_t new_ppa, old_ppa;
-	int32_t ret = -1;
-	uint32_t rbus, rchip, rblock, rpage;
+	struct chunk_table_t *ptr_chunk_table = ((struct ftl_page_mapping_context_t*)ptr_ftl_context)->ptr_chunk_table;
+	uint32_t ppa = ftl_convert_to_physical_page_address (bus, chip, block, page);
 	uint32_t i;
 
 	/**
@@ -336,76 +412,34 @@ int32_t page_mapping_map_logical_to_physical (
 		5. 청크테이블: 압축여부, 페이지len, valid 카운트
 	**/
 	if(is_compressed){
-
-	} else {
-		/* old_ppa:: 매핑테이블에 등록된 ppa */
-		old_ppa = ptr_pg_mapping->ptr_pg_table[logical_page_address[i]];
-
-		new_block = &(ptr_ssd->list_buses[bus].list_chips[chip].list_blocks[block]);
-
-		/* new_ppa:: parameter로 들어온 ppa */
-		new_ppa = ftl_convert_to_physical_page_address (bus, chip, block, page);
-		
-		/* 해당 lpa가 update인지 확인, invalidation이 필요한지 확인 */
-		if ((old_ppa!=-1) &&(new_ppa != old_ppa)) {
-			/* update이면 invalidation 함
-				1. 청크 테이블에 valid 카운트 감소
-				2. valid가 0이 되면, 압축여부에 관계없이 동작함 .
-					1. 압축된 모든 페이지 invalidation, lpa 클리어
-					2. 블록에 invalid 페이지 증가, valid page 감소
-			*/
-			ptr_chunk_table[old_ppa].valid_count--;
-			
-			//valid한 page가 없을 때, 압축된 모든 페이지를 invalidation
-			if(ptr_chunk_table[old_ppa].valid_count==0){
-				ftl_convert_to_ssd_layout(old_ppa, &rbus, &rchip, &rblock, &rpage);
-				old_block = ptr_ssd->list_buses[rbus].list_chips[rchip].list_blocks[rblock];
-				for(i=0; i<ptr_chunk_table[old_ppa].physical_page_len; i++){
-					old_block->list_pages[rpage+i].page_status = PAGE_STATUS_INVALID;
-					old_block->list_pages[rpage+i].no_logical_page_addr = -1;
-					old_block->nr_valid_pages--;
-					old_block->nr_invalid_pages--;
-				}
-				old_block = new_block->last_modified_time = timer_get_timestamp_in_us();
+		for(i=0; i<WRITE_BUFFER_LEN; i++){
+			clear_prev_ppa(ptr_ftl_context, logical_page_address[i], bus, chip, block, page+i);
+			if(mapping_logical_to_physical(ptr_ftl_context, logical_page_address[i], bus, chip, block, page+i) == -1){
+				goto err;
 			}
 		}
-	}
-	
-	/* new_ppa에 해당하는 정보 등록. */
-	uint32_t prev_valid=new_block->nr_valid_pages;
-	uint32_t prev_invalid=new_block->nr_invalid_pages;
 
-	for(i=0; i<nr_pages; i++){
-		if(new_block->list_pages[page+i].page_status == PAGE_STATUS_FREE){
-			new_block->list_pages[page+i].page_status = PAGE_STATUS_VALID;
-			new_block->list_pages[page+i].no_logical_page_addr = logical_page_address;
-			new_block->nr_valid_pages++;
-			new_block->nr_free_pages--;
-
-			// 매핑 테이블 등록
-			// ptr_pg_mapping->ptr_pg_table[logical_page_address] = new_ppa;
-			
-			// 청크 테이블 등록
-			ptr_chunk_table[new_ppa+i].valid_count = WRITE_BUFFER_SIZE;
-			ptr_chunk_table[new_ppa+i].is_compressed = is_compressed;
-			ptr_chunk_table[new_ppa+i].physical_page_len = nr_pages;
-			
-		} else {
-			printf ("blueftl_mapping_block: the physical page address is already used (%u:%u,%u,%u,%u)\n", 
-				new_ppa, bus, chip, block, page);
+		// 청크 테이블 등록
+		for(i=0; i<nr_pages; i++){
+			ptr_chunk_table[ppa+i].valid_count = WRITE_BUFFER_LEN;
+			ptr_chunk_table[ppa+i].physical_page_len = nr_pages;
+			ptr_chunk_table[ppa+i].is_compressed = 1;
+		}
+	} else {
+		clear_prev_ppa(ptr_ftl_context, *logical_page_address, bus, chip, block, page);
+		if(mapping_logical_to_physical(ptr_ftl_context, *logical_page_address, bus, chip, block, page) == -1){
 			goto err;
 		}
-	}
-	new_block->last_modified_time = timer_get_timestamp_in_us();
-	if(prev_valid==0 && prev_invalid==0){
-		ptr_ssd->list_buses[new_block->no_bus].list_chips[new_block->no_chip].nr_free_blocks--;
-		ptr_ssd->list_buses[new_block->no_bus].list_chips[new_block->no_chip].nr_dirty_blocks++;
+		ptr_chunk_table[ppa].valid_count = 1;
+		ptr_chunk_table[ppa].physical_page_len = 1;
+		ptr_chunk_table[ppa].is_compressed = 0;
 	}
 
 	//printf("-E----%s||%d \n", __func__,ret);
 	return 0;
 
 err:
+	printf ("blueftl_mapping_block: the physical page address is already used (%u:%u,%u,%u,%u)\n", ppa, bus, chip, block, page);
 	return -1;
 }
 

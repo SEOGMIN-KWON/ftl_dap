@@ -3,8 +3,9 @@
 
 #define WRITE_BUFFER_LEN 4
 
-uint32_t blueftl_read_write_mgr_init(uint32_t page_size);
+uint32_t blueftl_read_write_mgr_init();
 void blueftl_read_write_mgr_close();
+
 void blueftl_page_read(
     struct ftl_base_t ftl_base, 
     struct ftl_context_t *ptr_ftl_context, 
