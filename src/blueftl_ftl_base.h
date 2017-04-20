@@ -4,6 +4,7 @@
 #include "blueftl_ssdmgmt.h"
 #include "blueftl_user_vdevice.h"
 #include "blueftl_user.h"
+#include <stdbool.h>
 
 #define MAPPING_POLICY_PAGE			1
 #define MAPPING_POLICY_BLOCK		2
@@ -54,12 +55,13 @@ struct ftl_base_t {
 
 	int32_t (*ftl_map_logical_to_physical) (
 		struct ftl_context_t* ptr_ftl_context, 
-		uint32_t logical_page_address, 
+		uint32_t *logical_page_address, 
 		uint32_t bus, 
 		uint32_t chip, 
 		uint32_t block, 
 		uint32_t page,
-		uint32_t nr_pages);
+		uint32_t nr_pages,
+		bool is_compressed);
 
 	int32_t (*ftl_trigger_gc) (
 		struct ftl_context_t* ptr_ftl_context, 

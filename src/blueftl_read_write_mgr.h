@@ -1,6 +1,8 @@
 #ifndef _BLUESSD_FTL_RW_MGR
 #define _BLUESSD_FTL_RW_MGR
 
+#define WRITE_BUFFER_LEN 4
+
 uint32_t blueftl_read_write_mgr_init(uint32_t page_size);
 void blueftl_read_write_mgr_close();
 void blueftl_page_read(

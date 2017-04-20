@@ -18,13 +18,24 @@
 #include "blueftl_read_write_mgr.h"
 #include "lzrw3.h"
 
+struct wr_buff_t {
+    uint32_t arr_lpa[WRITE_BUFFER_LEN];
+    uint8_t buff[FLASH_PAGE_SIZE*WRITE_BUFFER_LEN];
+};
+
+struct wr_buff_t _struct_write_buff; 
+
 uint32_t _page_size;
 
-uint8_t *_write_page_buff;
+uint8_t *_write_buff;
 uint8_t *_compressed_buff;
 uint32_t _nr_buff_pages;
+
+
 uint32_t _write_page_buff_size;
 
+void serialize();
+void deserialize();
 
 void clean_buff(){
     _arr_lpa[0] = _arr_lpa[1] = _arr_lpa[2] = _arr_lpa[3] = -1;
@@ -34,10 +45,8 @@ void clean_buff(){
 uint32_t blueftl_read_write_mgr_init(uint32_t page_size){   
     _page_size = page_size;
     clean_buff();
-    // 4*(sz uint32_t) + (4 * page_size) 만큼의 write buffer를 만듦
-    // 앞은 lpa 저장할 곳임 
-    _write_page_buff_size = 4*sizeof(uint32_t) + (4*page_size)*sizeof(uint8_t);
-    _write_page_buff = (uint8_t *)malloc(_write_page_buff_size);
+    
+    _write_buff = (uint8_t *)malloc(sizeof(wr_buff_t));
     _compressed_buff = (uint8_t *)malloc(8*page_size*sizoef(uint8_t));
     return _write_page_buff | _compressed_buff; 
 }
@@ -84,11 +93,11 @@ uint32_t blueftl_page_write(
     _nr_buff_pages++; // (1)
     ptr_write_buff_lpa = _write_page_buff + (_nr_buff_pages - 1)*sizeof(uint32_t); // (2)
     *ptr_write_buff_lpa = lpa_curr; // (3)
-    ptr_write_buff = _write_page_buff + 4*sizeof(uint32_t) + ((_nr_buff_pages-1)*_page_size)); //(4)
+    ptr_write_buff = _write_page_buff + WRITE_BUFFER_LEN*sizeof(uint32_t) + ((_nr_buff_pages-1)*_page_size)); //(4)
     memcpy(ptr_write, ptr_lba_buff, _page_size); // (5)
 
     /* buff가 꽉찼으므로 compression 후 write */
-    if(_nr_buff_pages == 4){
+    if(_nr_buff_pages == WRITE_BUFFER_LEN){
         /*
             압축이 필요한가 - 압축이 필요할 때
                 1. 압축
@@ -207,4 +216,50 @@ uint32_t blueftl_page_write(
 
     return 0;
 #endif
+}
+
+
+
+void serialize(){
+    uint8_t *ptr_buf_pos = _write_buff;
+    
+    memcpy(ptr_buf_pos, _struct_write_buff.arr_lpa[0], sizeof(uint32_t));
+    ptr_buf_pos += sizeof(uint32_t);
+    memcpy(ptr_buf_pos, _struct_write_buff.arr_lpa[1], sizeof(uint32_t));
+    ptr_buf_pos += sizeof(uint32_t);
+    memcpy(ptr_buf_pos, _struct_write_buff.arr_lpa[2], sizeof(uint32_t));
+    ptr_buf_pos += sizeof(uint32_t);
+    memcpy(ptr_buf_pos, _struct_write_buff.arr_lpa[3], sizeof(uint32_t));
+    ptr_buf_pos += sizeof(uint32_t);
+
+    memcpy(ptr_buf_pos, _struct_write_buff.buff[0], FLASH_PAGE_SIZE);
+    ptr_buf_pos += FLASH_PAGE_SIZE);
+    memcpy(ptr_buf_pos, _struct_write_buff.buff[1], FLASH_PAGE_SIZE);
+    ptr_buf_pos += FLASH_PAGE_SIZE);
+    memcpy(ptr_buf_pos, _struct_write_buff.buff[2], FLASH_PAGE_SIZE);
+    ptr_buf_pos += FLASH_PAGE_SIZE);
+    memcpy(ptr_buf_pos, _struct_write_buff.buff[3], FLASH_PAGE_SIZE);
+
+}
+
+void deserialize(){
+    uint8_t *ptr_buf_pos = _write_buff;
+    
+    memcpy(&_struct_write_buff.arr_lpa[0], ptr_buf_pos, sizeof(uint32_t));
+    ptr_buf_pos += sizeof(uint32_t);
+    memcpy(&_struct_write_buff.arr_lpa[1], ptr_buf_pos, sizeof(uint32_t));
+    ptr_buf_pos += sizeof(uint32_t);
+    memcpy(&_struct_write_buff.arr_lpa[2], ptr_buf_pos, sizeof(uint32_t));
+    ptr_buf_pos += sizeof(uint32_t);
+    memcpy(&_struct_write_buff.arr_lpa[3], ptr_buf_pos, sizeof(uint32_t));
+    ptr_buf_pos += sizeof(uint32_t);
+
+    memcpy(&_struct_write_buff.buff[0], ptr_buf_pos, FLASH_PAGE_SIZE);
+    ptr_buf_pos += FLASH_PAGE_SIZE);
+    memcpy(&_struct_write_buff.buff[1], ptr_buf_pos, FLASH_PAGE_SIZE);
+    ptr_buf_pos += FLASH_PAGE_SIZE);
+    memcpy(&_struct_write_buff.buff[2], ptr_buf_pos, FLASH_PAGE_SIZE);
+    ptr_buf_pos += FLASH_PAGE_SIZE);
+    memcpy(&_struct_write_buff.buff[3], ptr_buf_pos, FLASH_PAGE_SIZE);
+
 }
