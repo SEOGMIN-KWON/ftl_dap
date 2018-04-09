@@ -5,7 +5,7 @@
 
 #define PAGE_TABLE_FREE		-1
 #define CHUNK_TABLE_FREE	-1
-#define GC_ON 				0
+#define GC_ON 				1 // TODO 
 
 extern struct ftl_base_t ftl_base_page_mapping;
 
@@ -50,11 +50,13 @@ int32_t page_mapping_get_free_physical_page_address (
 /* map a logical page address to a physical page address */
 int32_t page_mapping_map_logical_to_physical (
 	struct ftl_context_t* ptr_ftl_context, 
-	uint32_t *logical_page_address,
+	uint32_t logical_page_address,
 	uint32_t bus,
 	uint32_t chip,
 	uint32_t block,
-	uint32_t page,
-	uint32_t nr_pages,
-	bool is_compressed);
+	uint32_t page);
+	/* uint32_t nr_pages, */
+	/* bool is_compressed);*/
+
+
 #endif

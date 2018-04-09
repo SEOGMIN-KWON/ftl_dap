@@ -13,10 +13,10 @@
 #include "blueftl_mapping_page.h"
 #include "blueftl_mapping_block.h"
 #include "blueftl_char.h"
-#include "blueftl_wl_dual_pool.h"
+// #include "blueftl_wl_dual_pool.h"
 #include "blueftl_gc_page.h"
-#include "blueftl_read_write_mgr.h"
-#include "lzrw3.h"
+// #include "blueftl_read_write_mgr.h"
+// #include "lzrw3.h"
 struct ftl_base_t _ftl_base;
 struct ftl_context_t* _ptr_ftl_context = NULL;
 
@@ -84,10 +84,12 @@ int32_t blueftl_user_ftl_create (struct ssd_params_t* ptr_ssd_params)
 		return -1;
 	}
 
+	/* 
 	if(blueftl_read_write_mgr_init(_ptr_vdevice->page_main_size) == NULL){
 		printf("blueftl_read_write_mgr_init: the creation of the write page buff failed");
 		return -1;
 	}
+	*/
 
 
 	printf("blueftl user create end\n");
@@ -102,7 +104,7 @@ void blueftl_user_ftl_destroy (struct virtual_device_t* _ptr_vdevice)
 	/* destroy the user-level FTL */
 	_ftl_base.ftl_destroy_ftl_context (_ptr_ftl_context);
 	
-	blueftl_read_write_mgr_close();
+	// blueftl_read_write_mgr_close();
 }
 
 
@@ -131,18 +133,77 @@ int32_t blueftl_user_ftl_main (
 		case NETLINK_READ:
 			for (lpa_curr = lpa_begin; lpa_curr < lpa_end; lpa_curr++) {
 				/* find a physical page address corresponding to a given lpa */
+				uint32_t bus, chip, page, block;
 				uint8_t* ptr_lba_buff = ptr_buffer + ((lpa_curr - lpa_begin) * _ptr_vdevice->page_main_size);
 				
-				blueftl_page_read(_ftl_base, _ptr_ftl_context, lpa_curr, ptr_lba_buff);
+				//blueftl_page_read(_ftl_base, _ptr_ftl_context, lpa_curr, ptr_lba_buff);
+			
+				if (_ftl_base.ftl_get_mapped_physical_page_address (
+							_ptr_ftl_context, lpa_curr, &bus, &chip, &block, &page) == 0) {
+					blueftl_user_vdevice_page_read (
+							_ptr_vdevice,
+							bus, chip, block, page,
+							_ptr_vdevice->page_main_size,
+							(char*)ptr_lba_buff);
+				} else {
+
+				}
+			
 			}
 			break;
 
 		case NETLINK_WRITE:
 			for (lpa_curr = lpa_begin; lpa_curr < lpa_end; lpa_curr++) {
+				uint32_t bus, chip, block, page;
 				uint8_t* ptr_lba_buff = ptr_buffer + ((lpa_curr - lpa_begin) * _ptr_vdevice->page_main_size);
-				
+				uint8_t is_merge_needed = 0;
+
+				if (_ftl_base.ftl_get_mapped_physical_page_address (
+							_ptr_ftl_context, lpa_curr, &bus, &chip, &block, &page) == -1) {
+					if (_ftl_base.ftl_trigger_gc != NULL) {
+						if (_ftl_base.ftl_trigger_gc (_ptr_ftl_context, bus, chip) == -1) {
+							printf("gc failed!\n");
+							ret = -1;
+							goto failed;
+						}
+
+						if (_ftl_base.ftl_get_free_physical_page_address (
+									_ptr_ftl_context, lpa_curr, &bus, &chip, &block, &page) == -1) {
+							printf("no space in flash! \n");
+							ret = -1;
+							goto failed;
+						}
+					} else if (_ftl_base.ftl_trigger_merge != NULL) {
+						is_merge_needed = 1;
+					} else {
+						printf("gc not registered!\n");
+						ret = -1;
+						goto failed;
+					}
+				}
+				/*  
 				if((ret=blueftl_page_write(_ftl_base, _ptr_ftl_context, lpa_curr, ptr_lba_buff)) == -1){
 					goto failed;
+				}
+				*/
+
+				if (is_merge_needed == 0) {
+					blueftl_user_vdevice_page_write (
+							_ptr_vdevice,
+							bus, chip, block, page,
+							_ptr_vdevice->page_main_size,
+							(char*)ptr_lba_buff);
+
+					if (_ftl_base.ftl_map_logical_to_physical (
+								_ptr_ftl_context, lpa_curr, bus, chip, block, page) == -1) {
+						printf("map logical to physical failed ! \n");
+						ret = -1;
+						goto failed;
+					}
+
+
+				} else {
+					// TODO 
 				}
 			}
 			break;

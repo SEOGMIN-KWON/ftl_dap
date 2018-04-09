@@ -17,7 +17,7 @@
 #include "blueftl_mapping_page.h"
 #include "blueftl_util.h"
 #include "blueftl_user_vdevice.h"
-#include "blueftl_wl_dual_pool.h"
+// #include "blueftl_wl_dual_pool.h"
 
 uint32_t get_block_invalid_pages(struct ftl_context_t *ptr_ftl_context, uint32_t block_no){
 	struct ftl_page_mapping_context_t *ptr_pg_mapping = (struct ftl_page_mapping_context_t *)ptr_ftl_context->ptr_mapping;
