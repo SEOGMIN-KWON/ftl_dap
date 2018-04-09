@@ -19,26 +19,28 @@
 #include "blueftl_user_vdevice.h"
 #include "blueftl_wl_dual_pool.h"
 
+
 uint32_t get_block_invalid_pages(struct ftl_context_t *ptr_ftl_context, uint32_t block_no){
 	struct ftl_page_mapping_context_t *ptr_pg_mapping = (struct ftl_page_mapping_context_t *)ptr_ftl_context->ptr_mapping;
-	struct chunk_table_t *ptr_chunk_table = ptr_pg_mapping->ptr_chunk_table;
+	struct check_points_t *ptr_check_points = ptr_pg_mapping->ptr_check_points;
 	
 	uint32_t ppa, page = 0;
 	uint32_t invalid_count = 0;
 
 	while(page < ptr_ftl_context->ptr_ssd->nr_pages_per_block){
 		ppa = ftl_convert_to_physical_page_address(0, 0, block_no, page);
-		invalid_count += WRITE_BUFFER_LEN - ptr_chunk_table[ppa]->valid_count;
-		page += ptr_chunk_table[ppa]->physical_page_len;
+		invalid_count += WRITE_BUFFER_LEN - ptr_check_points[ppa]->valid_count;
+		page += ptr_check_points[ppa]->physical_page_len;
 	}
 
 	return invalid_count;
 }
 
+
 struct flash_block_t *select_victim(struct ftl_context_t *ptr_ftl_context, uint32_t bus, uint32_t chip){
 	uint32_t i=0;
 	struct ftl_page_mapping_context_t *ptr_pg_mapping = (struct ftl_page_mapping_context_t *)ptr_ftl_context->ptr_mapping;
-	struct chunk_table_t *ptr_chunk_table = ptr_pg_mapping->ptr_chunk_table;
+	struct check_points_t *ptr_check_points = ptr_pg_mapping->ptr_check_points;
 	uint32_t block;
 	uint32_t no_victim_block;
 	uint32_t victim_block_invalid_pages;
@@ -49,7 +51,7 @@ struct flash_block_t *select_victim(struct ftl_context_t *ptr_ftl_context, uint3
 	no_victim_block = 0;
 	victim_block_invalid_pages = get_block_invalid_page(ptr_ftl_context, no_victim_block);
 	block = 1;
-	if(victim->is_reserved_block) { 
+	if(victim->is_reserved_block) { // This block is victim block 
 		no_victim_block++;
 		victim_block_invalid_pages = get_block_invalid_page(ptr_ftl_context, no_victim_block);
 		block++;
