@@ -9,17 +9,16 @@
 
 extern struct ftl_base_t ftl_base_page_mapping;
 
-/* mskim */
-struct chunk_table_t {
-	uint8_t		valid_count;
-	uint8_t		physical_page_len;
-	bool		is_compressed;
+struct check_points_t {
+	uint32_t		valid_count;
+	uint32_t		physical_page_len;
+	//bool		is_compressed;
 };
  
 struct ftl_page_mapping_context_t {
 	uint32_t nr_pg_table_entries;	/* the number of pages that belong to the page mapping table */
 	uint32_t *ptr_pg_table; /* for the page mapping */
-	struct chunk_table_t *ptr_chunk_table;
+	struct check_points_t *ptr_check_points;
 	struct flash_block_t* reserved;
 };
 
