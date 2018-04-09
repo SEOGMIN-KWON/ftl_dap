@@ -33,6 +33,13 @@ uint32_t _nr_buff_pages;
 void serialize();
 void deserialize();
 
+int32_t get_free_page(struct ftl_context_t* ptr_ftl_context, 
+	uint32_t nr_pages,
+	uint32_t *ptr_bus,
+	uint32_t *ptr_chip,
+	uint32_t *ptr_block,
+	uint32_t *ptr_page);
+
 void clean_buff(){
     _struct_write_buff.arr_lpa[0] = -1;
     _struct_write_buff.arr_lpa[1] = -1;
@@ -111,7 +118,9 @@ uint32_t blueftl_page_write(
             =>  buffer에 있는 데이터를 그냥 꺼내라
 
             문제점 page_mapping_get_free_physical_page_address
-                현재 block 내에서 연속된 페이지를 찾는데 fragmentation이 생김. 그런 빈 자리를 압축하지 않는 페이지가 들어가도록 유도해야 할듯.
+                현재 block 내에서 연속된 페이지를 찾는데 block fragmentation이 생김. 
+                그런 빈 자리를 싱글 페이지가 들어가도록 유도해야 할듯.!!
+                
         */
         
         /* 1. serialize 후 압축 */
@@ -123,20 +132,34 @@ uint32_t blueftl_page_write(
         ){  
             // 압축 하지 않고 write
             for(i=0; i<WRITE_BUFFER_LEN; i++){
+                /* 2. 페이지 요청 */
+                if(get_free_pages(ptr_ftl_context, 1, &bus, &chip, &block, &page)==-1){
+                    goto err;
+                }
                 
+                /* 3. physical write */
+                blueftl_user_vdevice_page_write(
+                    _ptr_vdevice,
+                    bus, chip, block, page,
+                    FLASH_PAGE_SIZE,
+                    _struct_write_buff.buff[FLASH_PAGE_SIZE*i]
+                );
+                
+                /* 4. ftl 등록 */
+                if(ftl_base.ftl_map_logical_to_physical(
+                    ptr_ftl_context, &_struct_write_buff.arr_lpa[i], bus, chip, block, page, 1, 0) == -1)
+                {
+                    printf ("bluessd: map_logical_to_physical failed\n");
+                    goto err;
+                }
             }
         } else { // 압축된 것을 write
             // 압축된 페이지 계산
             uint32_t nr_compress_pages = compressed_size/FLASH_PAGE_SIZE + compressed_size%FLASH_PAGE_SIZE?1:0;
             uint32_t bus, chip, block, page;
-            // 2. 압축된 페이지 사이즈에 맞게 ftl 페이지 요청
-            if(page_mapping_get_free_physical_page_address(ptr_ftl_context, nr_compress_pages, &bus, &chip, &block, &page)==-1){
-                /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
-                /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
-                /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
-                /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
-                /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
-                /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
+            /* 2. 압축된 페이지 사이즈에 맞게 ftl 페이지 요청 */
+            if(get_free_pages(ptr_ftl_context, nr_compress_pages, &bus, &chip, &block, &page)==-1){
+                goto err;
             }
             
             /* 3. physical write */
@@ -156,7 +179,7 @@ uint32_t blueftl_page_write(
                 ptr_ftl_context, _struct_write_buff.arr_lpa, bus, chip, block, page, nr_compress_pages, 1) == -1)
             {
                 printf ("bluessd: map_logical_to_physical failed\n");
-                return -1;
+                goto err;
             }
         }
         
@@ -165,8 +188,47 @@ uint32_t blueftl_page_write(
         
     }
     return 0;
+
+err:
+    return -1;
 }
 
+int32_t get_free_pages(struct ftl_context_t* ptr_ftl_context, 
+	uint32_t nr_pages,
+	uint32_t *ptr_bus,
+	uint32_t *ptr_chip,
+	uint32_t *ptr_block,
+	uint32_t *ptr_page)
+{
+    if(_ftl_base.ftl_get_free_physical_page_address(
+        ptr_ftl_context, nr_pages, ptr_bus, ptr_chip, ptr_block, ptr_page) == -1
+    ){
+        /* 구현:: 공간 없음. GC 요청, page_mapping_get_free_physical_page_address 재시도, 안되면 에러*/
+        if (_ftl_base.ftl_trigger_gc != NULL) {
+            
+            /* GC */
+            if(_ftl_base.ftl_trigger_gc(_ptr_ftl_context, bus, chip) == -1) {
+                printf("bluessd: oops! garbage collection failed.\n");
+                goto err;
+            }
+
+            /* 페이지요청 재시도 */
+            if(_ftl_base.ftl_get_free_physical_page_address(
+                ptr_ftl_context, nr_pages, ptr_bus, ptr_chip, ptr_block, ptr_page) == -1
+            ){
+                printf("bluessd: there is not sufficient space in flash memory.\n")
+                goto err;
+            }
+        } else {
+            printf ("bluessd: garbage collection is not registered\n");
+            goto err;
+        }
+    }
+    return 0;
+
+err:
+    return -1;
+}
 
 
 void serialize(){

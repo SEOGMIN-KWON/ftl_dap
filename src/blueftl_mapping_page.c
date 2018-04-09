@@ -95,7 +95,7 @@ struct ftl_context_t* page_mapping_create_ftl_context(struct virtual_device_t* p
 	}
 
 	/* initialize ptr_chunk_table */
-	if((ptr_pg_mapping->ptr_chunk_table = (struct chunk_table_t *)malloc(ptr_pg_mapping->nr_pg_table_entries * sizeof(struct chun_table_t *))) == NULL) {
+	if((ptr_pg_mapping->ptr_chunk_table = (struct chunk_table_t *)malloc(ptr_pg_mapping->nr_pg_table_entries * sizeof(struct chunk_table_t *))) == NULL) {
 		printf ("blueftl_mapping_page: failed to allocate the memory for ptr_chunk_table\n");
 		goto error_alloc_ptr_chunk_table;
 	}

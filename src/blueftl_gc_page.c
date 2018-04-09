@@ -19,63 +19,56 @@
 #include "blueftl_user_vdevice.h"
 #include "blueftl_wl_dual_pool.h"
 
-int gd=0;
-
-struct flash_block_t *victim_random(struct flash_ssd_t *ptr_ssd){
-	uint32_t bus;
-	uint32_t chip;
-	uint32_t block;
+uint32_t get_block_invalid_pages(struct ftl_context_t *ptr_ftl_context, uint32_t block_no){
+	struct ftl_page_mapping_context_t *ptr_pg_mapping = (struct ftl_page_mapping_context_t *)ptr_ftl_context->ptr_mapping;
+	struct chunk_table_t *ptr_chunk_table = ptr_pg_mapping->ptr_chunk_table;
 	
-	do{
-		bus = rand()%ptr_ssd->nr_buses;
-		chip = rand()%ptr_ssd->nr_chips_per_bus;
-		block = rand()%ptr_ssd->nr_blocks_per_chip;
-		// printf("%d ",block);
-	}while(ptr_ssd->list_buses[bus].list_chips[chip].list_blocks[block].is_reserved_block || 
-		ptr_ssd->list_buses[bus].list_chips[chip].list_blocks[block].nr_valid_pages == ptr_ssd->nr_pages_per_block
-	);
-	return &(ptr_ssd->list_buses[bus].list_chips[chip].list_blocks[block]);
-}
+	uint32_t ppa, page = 0;
+	uint32_t invalid_count = 0;
 
-// b = 0: greedy
-// b = 1: cost-benefit
-struct flash_block_t *compare_block(struct flash_ssd_t *ptr_ssd, struct flash_block_t *b1, struct flash_block_t *b2, short select){
-	if(select){
-		uint32_t cur_time = timer_get_timestamp_in_us();
-		double u1 = b1->nr_valid_pages/ptr_ssd->nr_pages_per_block;
-		double u2 = b2->nr_valid_pages/ptr_ssd->nr_pages_per_block;
-
-		double f1 = u1/((1 - u1) * (cur_time - b1->last_modified_time));
-		double f2 = u2/((1 - u2) * (cur_time - b2->last_modified_time));
-
-		if(f1 < f2){ return b1; } 
-		else { return b2; }
-	} else {
-		if(b1->nr_invalid_pages > b2->nr_invalid_pages){ return b1; } 
-		else { return b2; }
+	while(page < ptr_ftl_context->ptr_ssd->nr_pages_per_block){
+		ppa = ftl_convert_to_physical_page_address(0, 0, block_no, page);
+		invalid_count += WRITE_BUFFER_LEN - ptr_chunk_table[ppa]->valid_count;
+		page += ptr_chunk_table[ppa]->physical_page_len;
 	}
+
+	return invalid_count;
 }
 
-//reserved block 한개 넣음 
+struct flash_block_t *select_victim(struct ftl_context_t *ptr_ftl_context, uint32_t bus, uint32_t chip){
+	uint32_t i=0;
+	struct ftl_page_mapping_context_t *ptr_pg_mapping = (struct ftl_page_mapping_context_t *)ptr_ftl_context->ptr_mapping;
+	struct chunk_table_t *ptr_chunk_table = ptr_pg_mapping->ptr_chunk_table;
+	uint32_t block;
+	uint32_t no_victim_block;
+	uint32_t victim_block_invalid_pages;
+	uint32_t temp_block_invalid_pages;
 
-// select 0:random, 1:greedy, 2:costbenefit
-struct flash_block_t *select_victim(struct flash_ssd_t *ptr_ssd, uint32_t bus, uint32_t chip, short select){
-	if(!select) return victim_random(ptr_ssd);
-	uint32_t block = 0;
-	struct flash_block_t *victim = &(ptr_ssd->list_buses[bus].list_chips[chip].list_blocks[block]);
+	//invalid 가 maximum 인 block 
 
+	no_victim_block = 0;
+	victim_block_invalid_pages = get_block_invalid_page(ptr_ftl_context, no_victim_block);
+	block = 1;
 	if(victim->is_reserved_block) { 
+		no_victim_block++;
+		victim_block_invalid_pages = get_block_invalid_page(ptr_ftl_context, no_victim_block);
 		block++;
-		victim = &(ptr_ssd->list_buses[bus].list_chips[chip].list_blocks[block]);
 	}
 
-	for(block++; block < ptr_ssd->nr_blocks_per_chip; block++){
+	for(; block < ptr_ssd->nr_blocks_per_chip; block++){
 		if(ptr_ssd->list_buses[bus].list_chips[chip].list_blocks[block].is_reserved_block) continue;
-		victim = compare_block(ptr_ssd, victim, &(ptr_ssd->list_buses[bus].list_chips[chip].list_blocks[block]), select-1);
+
+		temp_block_invalid_pages = get_block_invalid_page(ptr_ftl_context, block);
+
+		if(victim_block_invalid_pages < temp_block_invalid_pages){
+			no_victim_block = block;
+			victim_block_invalid_pages = temp_block_invalid_pages;
+		}
 	}
 
-	return victim;
+	return &(ptr_ssd->list_buses[bus].list_chips[chip].list_blocks[victim]);
 }
+
 
 
 void move_block(struct ftl_context_t *context, struct flash_block_t *src, struct flash_block_t *dest){
@@ -94,7 +87,7 @@ void move_block(struct ftl_context_t *context, struct flash_block_t *src, struct
 		if(	src->list_pages[src_pg].page_status == PAGE_STATUS_INVALID || // get src valid page
 			src->list_pages[src_pg].page_status == PAGE_STATUS_FREE) { 
 			// printf("c ");
-			continue; 
+			continue;
 		}
 		// printf(" ");
 		// get dest free page
@@ -129,7 +122,7 @@ void move_block(struct ftl_context_t *context, struct flash_block_t *src, struct
 			ftl_convert_to_physical_page_address(dest->no_bus, dest->no_chip, dest->no_block, dest_pg);
 		cnt++;
 	}
-	// if(gd) printf("(%d)",cnt);
+
 	free(buf);
 
 	//printf("enddest valid %d\n", dest->nr_valid_pages);
@@ -156,7 +149,7 @@ int32_t gc_page_trigger_gc(struct ftl_context_t *ptr_ftl_context, int32_t bus, i
 	struct virtual_device_t *pvdevice = ptr_ftl_context->ptr_vdevice;
 	uint32_t page_offset;
 	bus=0;chip=0;
-	struct flash_block_t *victim = select_victim(ptr_ssd, bus, chip, 1);
+	struct flash_block_t *victim = select_victim(ptr_ftl_context, bus, chip, 1);
 	struct flash_block_t *temp;
 	struct flash_block_t *reserved = ((struct ftl_page_mapping_context_t *)ptr_ftl_context->ptr_mapping)->reserved;
 	//printf("-S----- %s\n", __func__);
@@ -172,9 +165,9 @@ int32_t gc_page_trigger_gc(struct ftl_context_t *ptr_ftl_context, int32_t bus, i
 	//printf("dirties %d\n", ptr_ssd->list_buses[0].list_chips[0].nr_dirty_blocks);
 	uint32_t o;
 
-	// if(victim->nr_valid_pages<0) gd=1;
-	// else gd=0;
-	// if(gd) printf("[ %p,%2d,%2d,%2d | %p,%2d ]-->", victim, victim->nr_free_pages, victim->nr_invalid_pages, victim->nr_valid_pages, reserved, reserved->nr_valid_pages+reserved->nr_invalid_pages+reserved->nr_free_pages);
+
+
+
 
 	// for(o=0; o<ptr_ssd->nr_pages_per_block; o++){
 	// 	printf("%d ",reserved->list_pages[o].page_status);
@@ -216,7 +209,7 @@ int32_t gc_page_trigger_gc(struct ftl_context_t *ptr_ftl_context, int32_t bus, i
 		if(reserved->list_pages[o].page_status==PAGE_STATUS_VALID) reserved->nr_valid_pages++; 
 	}
 
-	// if(gd) printf("[ %2d %2d %2d| %2d ]\n ", reserved->nr_free_pages, reserved->nr_invalid_pages, reserved->nr_valid_pages, victim->nr_valid_pages);
+
 
 	// printf("after dirties %d\n", ptr_ssd->list_buses[0].list_chips[0].nr_dirty_blocks);
 	// printf("reserved valid %d\n", reserved->nr_valid_pages);
